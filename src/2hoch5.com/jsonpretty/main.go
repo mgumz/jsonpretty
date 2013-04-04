@@ -34,7 +34,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 )
 
@@ -50,16 +52,25 @@ func main() {
 	var (
 		in     = flag.String("in", "", "name of input.json, if empty <stdin> is used")
 		out    = flag.String("out", "", "name of output.json, if empty <stdout> is used")
+		is_url = flag.Bool("url", false, "set to true to fetch 'in' from web, default 'false'")
 		indent = flag.String("indent", "  ", "string to use as indention")
 		prefix = flag.String("prefix", "", "string to use as prefix")
+
+		infile io.ReadCloser
 		err    error
 	)
 
 	flag.Parse()
 
-	infile := os.Stdin
+	infile = os.Stdin
 	if len(*in) > 0 {
-		infile, err = os.Open(*in)
+		if *is_url {
+			var resp *http.Response
+			resp, err = http.Get(*in)
+			infile = resp.Body
+		} else {
+			infile, err = os.Open(*in)
+		}
 		onErrorExit(err, 1)
 	}
 
@@ -74,7 +85,10 @@ func main() {
 
 	buf := bytes.Buffer{}
 	err = json.Indent(&buf, json_in, *prefix, *indent)
-	onErrorExit(err, 1)
+	if err != nil {
+		os.Stdout.Write(json_in)
+		onErrorExit(err, 1)
+	}
 
 	outfile.Write(buf.Bytes())
 	outfile.WriteString("\n")
