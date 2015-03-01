@@ -38,14 +38,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"text/scanner"
 )
-
-func onErrorExit(e error, exit int) {
-	if e != nil {
-		os.Stderr.WriteString(fmt.Sprintf("error: %s\n", e))
-		os.Exit(exit)
-	}
-}
 
 func main() {
 
@@ -86,10 +80,48 @@ func main() {
 	buf := bytes.Buffer{}
 	err = json.Indent(&buf, json_in, *prefix, *indent)
 	if err != nil {
-		os.Stdout.Write(json_in)
+		switch err.(type) {
+		case *json.SyntaxError:
+			var (
+				serr, _   = err.(*json.SyntaxError)
+				from      = int64(0)
+				to        = int64(len(json_in) - 1)
+				line, col = findLineByPos(serr.Offset, bytes.NewReader(json_in))
+			)
+			if serr.Offset > 50 {
+				from = serr.Offset - 50
+			}
+			if (from + 100) < to {
+				to = from + 100
+			}
+			fmt.Fprintf(os.Stderr, "%s\n", json_in[from:to])
+			err = fmt.Errorf("%s (line: %d, column: %d)\n", err, line, col)
+		default:
+			os.Stderr.Write(json_in)
+		}
 		onErrorExit(err, 1)
 	}
 
 	outfile.Write(buf.Bytes())
 	outfile.WriteString("\n")
+}
+
+func onErrorExit(e error, exit int) {
+	if e != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", e)
+		os.Exit(exit)
+	}
+}
+
+func findLineByPos(pos int64, reader io.Reader) (int, int) {
+	var (
+		s = scanner.Scanner{Mode: scanner.ScanChars}
+		i rune
+	)
+	s.Init(reader)
+	for i = s.Next(); int64(s.Pos().Offset) < pos && i != scanner.EOF; {
+		s.Next()
+	}
+	p := s.Pos()
+	return p.Line, p.Column
 }
